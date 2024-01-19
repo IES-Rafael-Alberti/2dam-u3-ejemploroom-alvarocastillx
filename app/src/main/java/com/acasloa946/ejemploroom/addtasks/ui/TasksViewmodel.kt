@@ -5,12 +5,24 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.acasloa946.ejemploroom.addtasks.domain.AddTaskUseCase
+import com.acasloa946.ejemploroom.addtasks.domain.GetTasksUseCase
 import com.acasloa946.ejemploroom.addtasks.ui.model.TaskModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import com.acasloa946.ejemploroom.addtasks.ui.TaskUiState.*
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 @HiltViewModel
-class TasksViewmodel @Inject constructor() : ViewModel() {
+//El parámetro getTasksUseCase del constructor se inyecta sin private val porque no nos hace falta
+// ya que lo vamos a utilizar directamente en la variable uiState que gestionará los estados de la ui.
+class TasksViewmodel @Inject constructor(private val addTaskUseCase: AddTaskUseCase, getTasksUseCase: GetTasksUseCase) : ViewModel() {
     private val _showDialog = MutableLiveData<Boolean>()
     val showDialog : LiveData<Boolean> = _showDialog
 
@@ -26,8 +38,10 @@ class TasksViewmodel @Inject constructor() : ViewModel() {
 
     fun onTaskCreated() {
         dialogClose()
-        Log.i("dam2",_taskText.value ?: "")
-        _tasks.add(TaskModel(task = _taskText.value ?: ""))
+        //Un viewModelScope es una corutina.
+        viewModelScope.launch {
+            addTaskUseCase(TaskModel(task = _taskText.value ?: ""))
+        }
         _taskText.value = ""
     }
     fun onChangeTextTask(text:String) {
@@ -60,4 +74,17 @@ class TasksViewmodel @Inject constructor() : ViewModel() {
         //sino que se vuelve a reasignar para que la vista vea que se ha actualizado un item y se recomponga.
         _tasks[index] = _tasks[index].let { it.copy(selected = !it.selected) }
     }
+
+    //El caso de uso getTasksUseCase() nos devuelve el Flow continuo y cada vez que actualice
+    //los datos va a pasarlo a Success (ver data class en TaskUiState).
+    //Si por algún motivo falla y existe algún error, lo vamos a capturar y enviar al estado Error
+    //con el parámetro de la excepción que ha generado.
+    //El último modificador hará que cuando mi app o la pantalla esté en segundo plano hasta que no
+    //pasen 5 segundos no bloqueará o cancelará el Flow (por defecto es 0)
+    //Por ejemplo nuestra app pasará a segundo plano si nos llaman, o si desplegamos el menú superior
+    //para ver una notificación o un whatsapp, etc.
+    //Con stateIn, en el último argumento, también estamos asignando el estado inicial a Loading.
+    val uiState: StateFlow<TaskUiState> = getTasksUseCase().map(::Success)
+        .catch { Error(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Loading)
 }

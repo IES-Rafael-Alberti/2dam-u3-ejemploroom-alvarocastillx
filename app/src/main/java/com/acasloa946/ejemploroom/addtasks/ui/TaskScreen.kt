@@ -19,6 +19,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -27,14 +28,18 @@ import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.acasloa946.ejemploroom.addtasks.ui.model.TaskModel
 
 
@@ -42,22 +47,46 @@ import com.acasloa946.ejemploroom.addtasks.ui.model.TaskModel
 fun ComposableBasica(tasksViewmodel: TasksViewmodel) {
     val showDialog: Boolean by tasksViewmodel.showDialog.observeAsState(false)
     val myTaskText: String by tasksViewmodel.taskText.observeAsState("")
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+
+    val uiState by produceState<TaskUiState>(
+        initialValue = TaskUiState.Loading,
+        key1 = lifecycle,
+        key2 = tasksViewmodel    ){
+        lifecycle.repeatOnLifecycle(state = Lifecycle.State.STARTED) {
+            tasksViewmodel.uiState.collect{ value = it }
+        }
+    }
+
+
     Box(modifier = Modifier.fillMaxSize()) {
-        AddTasksDialog(
-            show = showDialog,
-            myTaskText = myTaskText,
-            onDismiss = { tasksViewmodel.dialogClose() },
-            onTaskAdded = { tasksViewmodel.onTaskCreated() },
-            onTaskTextChanged = {
-                tasksViewmodel.onChangeTextTask(it)
+        when (uiState) {
+            is TaskUiState.Error -> {  }
+            is TaskUiState.Loading -> {
+            Box(modifier = Modifier.fillMaxSize()) {
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .size(150.dp)
+                        .align(Alignment.Center)
+                )
             }
-        )
-        FabDialog(modifier = Modifier
-            .align(Alignment.BottomEnd)
-            .padding(16.dp), onNewTask = {
-            tasksViewmodel.dialogOpen()
-        })
-        TaskList(tasksViewmodel = tasksViewmodel)
+        }
+            is TaskUiState.Success -> {
+            Box(modifier = Modifier.fillMaxSize()) {
+                AddTasksDialog(
+                    show = showDialog,
+                    myTaskText = myTaskText,
+                    onDismiss = { tasksViewmodel.dialogClose() },
+                    onTaskAdded = { tasksViewmodel.onTaskCreated() },
+                    onTaskTextChanged = { tasksViewmodel.onChangeTextTask(it) }
+                )
+                FabDialog(
+                    Modifier.align(Alignment.BottomEnd),
+                    onNewTask = { tasksViewmodel.dialogOpen() })
+                TasksList((uiState as TaskUiState.Success).tasks, tasksViewmodel)
+            }
+        }
+        }
     }
 }
 
@@ -116,16 +145,14 @@ fun AddTasksDialog(
 }
 
 @Composable
-fun TaskList(tasksViewmodel: TasksViewmodel) {
-    val myTasks: List<TaskModel> = tasksViewmodel.tasks
-
+fun TasksList(tasks: List<TaskModel>, tasksViewModel: TasksViewmodel) {
     LazyColumn {
-        //El parámetro opcional key ayuda a optimizar el LazyColumn
-        //Al indicarle que la clave es el id va a ser capaz de identificar cada tarea sin problemas
-        items(myTasks, key = { it.id }) {
-            ItemTask(taskModel = it, onTaskRemove = {tasksViewmodel.onItemRemove(it)}, onTaskCheckChanged = {
-                tasksViewmodel.onCheckBoxSelected(it)
-            })
+        items(tasks, key = { it.id }) { task ->
+            ItemTask(
+                task,
+                onTaskRemove = { tasksViewModel.onItemRemove(it) },
+                onTaskCheckChanged = { tasksViewModel.onCheckBoxSelected(it) }
+            )
         }
     }
 }
